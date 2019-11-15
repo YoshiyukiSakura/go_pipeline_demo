@@ -6,13 +6,16 @@ import (
 	"io"
 	"log"
 	"os"
+	"sync"
 )
 
 func main() {
 	//读取文件，产生流
 	c := readFile()
-	//单线程消费流
-	output := reverseWorker(c)
+	//TODO 时间有点紧张，多线程方案只是雏形想法，不是特别完善
+	output1 := reverseWorker(c)
+	output2 := reverseWorker(c)
+	output := merge(output1,output2)
 	// 消费输出结果
 	func(out <-chan []byte) {
 		file, err := os.OpenFile("B.txt", os.O_WRONLY|os.O_TRUNC, 0600)
@@ -83,4 +86,31 @@ func reverseBytes(bytes []byte) []byte {
 		reverseBytes[i], reverseBytes[opp] = reverseBytes[opp], reverseBytes[i]
 	}
 	return reverseBytes
+}
+
+
+func merge(cs ...<-chan []byte) <-chan []byte {
+	var wg sync.WaitGroup
+	out := make(chan []byte)
+
+	// Start an output goroutine for each input channel in cs.  output
+	// copies values from c to out until c is closed, then calls wg.Done.
+	output := func(c <-chan []byte) {
+		for n := range c {
+			out <- n
+		}
+		wg.Done()
+	}
+	wg.Add(len(cs))
+	for _, c := range cs {
+		go output(c)
+	}
+
+	// Start a goroutine to close out once all the output goroutines are
+	// done.  This must start after the wg.Add call.
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
+	return out
 }
